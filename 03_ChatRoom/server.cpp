@@ -11,6 +11,12 @@
 #include <ctime>
 #include <iomanip>
 
+// Color Coding Macros
+#define RED     "\x1b[31m"
+#define GREEN   "\x1b[32m"
+#define RESET   "\x1b[0m"
+#define YELLOW  "\033[33m"
+
 std::unordered_map<int, std::string>clients;
 std::unordered_map<std::string, int>users;
 std::mutex clientMtx;
@@ -47,7 +53,8 @@ bool privateMessage(std::string &msg, std::string &username, std::string &timest
             std::lock_guard<std::mutex>lock(clientMtx);
             std::string privateMsg;
             std::getline(iss, privateMsg);
-            privateMsg = "(" + timestr + ")" + "(Private) [" + username + "] : " + privateMsg;
+            privateMsg = "(" + timestr + ")" + "(Private) [" + username + "] to [" + targetUser + "] : " + privateMsg;
+            std::cout << RED << privateMsg << RESET << std::endl;
             send(users[targetUser], privateMsg.c_str(), strlen(privateMsg.c_str()), 0);
             return true;
         } 
@@ -67,14 +74,14 @@ void HandleClients(int client_fd) {
         users[username] = client_fd;
     }
 
-    std::cout << "[" << getCurrentTime() << "]" << username << " joined the chat" << std::endl;
-    broadCast("[" + getCurrentTime() + "]" + username + " joined the chat", client_fd);
+    std::cout << YELLOW << "[" << getCurrentTime() << "] " << username << " joined the chat" << RESET << std::endl;
+    broadCast("[" + getCurrentTime() + "] " + username + " joined the chat", client_fd);
 
     while(true) {
         int bytesRecv = recv(client_fd, &buffer, sizeof(buffer), 0);
         std::string timestr = getCurrentTime();
         if(bytesRecv <= 0) {
-            std::cout << "[" << timestr << "]" << username << " left the chat" << std::endl;
+            std::cout << YELLOW << "[" << timestr << "]" << username << " left the chat" << RESET << std::endl;
             broadCast("[" + timestr + "]" + username + " left the chat", client_fd);
             close(client_fd);
             {
@@ -88,7 +95,7 @@ void HandleClients(int client_fd) {
         std::string formatted = "[" + timestr + "]" + "[" + username + "] : " + msg;
         if(!privateMessage(msg, username, timestr)) {
             broadCast(formatted, client_fd);
-            std::cout << formatted << std::endl;
+            std::cout << GREEN << formatted << RESET << std::endl;
         }
     }
 }
