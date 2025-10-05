@@ -7,8 +7,10 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <sstream>
 
 std::unordered_map<int, std::string>clients;
+std::unordered_map<std::string, int>users;
 std::mutex clientMtx;
 
 void broadCast(std::string msg, int sender_fd) {
@@ -20,6 +22,24 @@ void broadCast(std::string msg, int sender_fd) {
     }
 }
 
+bool privateMessage(std::string &msg, std::string &username) {
+    if(!msg.empty() && msg[0] == '@') {
+        std::istringstream iss(msg);
+        std::string targetUser;
+        iss >> targetUser;
+        targetUser.erase(0, 1); // removing @ from the string
+        if(users.find(targetUser) != users.end()) {
+            std::lock_guard<std::mutex>lock(clientMtx);
+            std::string privateMsg;
+            std::getline(iss, privateMsg);
+            privateMsg = "(Private) [" + username + "] : " + privateMsg;
+            send(users[targetUser], privateMsg.c_str(), strlen(privateMsg.c_str()), 0);
+            return true;
+        } 
+    }
+    return false;
+}
+
 void HandleClients(int client_fd) {
     char buffer[1024] = {0};
 
@@ -29,6 +49,7 @@ void HandleClients(int client_fd) {
     {
         std::lock_guard<std::mutex> lock(clientMtx);
         clients[client_fd] = username;
+        users[username] = client_fd;
     }
 
     std::cout << username << " joined the chat" << std::endl;
@@ -50,8 +71,10 @@ void HandleClients(int client_fd) {
 
         std::string msg(buffer, bytesRecv);
         std::string formatted = "[" + username + "] : " + msg;
-        std::cout << formatted << std::endl;
-        broadCast(formatted, client_fd);
+        if(!privateMessage(msg, username)) {
+            broadCast(formatted, client_fd);
+            std::cout << formatted << std::endl;
+        }
     }
 }
 
