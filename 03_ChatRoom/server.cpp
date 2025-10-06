@@ -29,6 +29,19 @@ std::unordered_map<std::string, int>users;
 // mutex for variables shared between threads
 std::mutex clientMtx;
 
+// key used for encrypting and decrypting
+const std::string key{"MyKey"};
+
+// This function will encrypt the message to be sent over the socket
+// And also decrypt the message once received
+std::string xorEncryptDecrypt(std::string &msg) {
+    std::string result(msg.size(), 0);
+    for(int i = 0; i < msg.size(); i++) {
+        result[i] = msg[i] ^ key[i % key.size()];
+    }
+    return result;
+}
+
 // This function will return the current time in string format 
 std::string getCurrentTime() {
     using namespace std::chrono;
@@ -48,7 +61,8 @@ void broadCast(std::string msg, int sender_fd) {
     std::lock_guard<std::mutex>lock(clientMtx);
     for(auto client : clients) {
         if(client.first != sender_fd) {
-            send(client.first, msg.c_str(), strlen(msg.c_str()), 0);
+            std::string encrypt = xorEncryptDecrypt(msg);
+            send(client.first, encrypt.c_str(), encrypt.size(), 0);
         }
     }
 }
@@ -68,7 +82,8 @@ bool privateMessage(std::string &msg, std::string &username, std::string &timest
             std::getline(iss, privateMsg);
             privateMsg = "(" + timestr + ")" + "(Private) [" + username + "] to [" + targetUser + "] : " + privateMsg;
             std::cout << RED << privateMsg << RESET << std::endl;
-            send(users[targetUser], privateMsg.c_str(), strlen(privateMsg.c_str()), 0);
+            std::string encrypt = xorEncryptDecrypt(msg);
+            send(users[targetUser], encrypt.c_str(), encrypt.size(), 0);
             return true;
         } 
     }
@@ -83,7 +98,8 @@ void HandleClients(int client_fd) {
     char buffer[1024] = {0};
 
     int user_len = recv(client_fd, &buffer, sizeof(buffer), 0);
-    std::string username(buffer, user_len);
+    std::string encryptedUsername(buffer, user_len);
+    std::string username{xorEncryptDecrypt(encryptedUsername)};
 
     {
         std::lock_guard<std::mutex> lock(clientMtx);
@@ -108,7 +124,8 @@ void HandleClients(int client_fd) {
             break;
         }
 
-        std::string msg(buffer, bytesRecv);
+        std::string encryptedMsg(buffer, bytesRecv);
+        std::string msg{xorEncryptDecrypt(encryptedMsg)};
         std::string formatted = "[" + timestr + "]" + "[" + username + "] : " + msg;
         if(!privateMessage(msg, username, timestr)) {
             broadCast(formatted, client_fd);
