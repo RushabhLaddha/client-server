@@ -36,22 +36,32 @@ std::mutex clientMtx;
 // Passphrase used for creating key and iv
 const std::string PASSPHRASE = "ReplaceWithStrongPassphrase!";
 
+// This function will encrypt the plaintext into ciphertext using AES-256-CBC mode
+//      1. Cuts the plaintext into 16 bytes of chunks
+//      2. For the first block, IV is used for ciphering the text and then encrypted by key
+//      3. For the next blocks, previous ciphered text is used instead of IV 
 bool aes_encrypt(std::string &plaintext, std::string &ciphertext, unsigned char key[32], unsigned char iv[16]) {
+    // Creates a context
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if(!ctx) return false;
 
+    // Initializes the context with generated key and iv saying the algorithm to use this key and IV 
     if(EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return false;
     }
 
+    // Creating a outbuf to store the ciphertext. Creating a bit extra size to compensate the padding to be done
     int outlen = 0;
     std::vector<unsigned char>outbuf(plaintext.size() + EVP_CIPHER_block_size(EVP_aes_256_cbc()));
+
+    // Encrypts the plaintext excluding the last block to handle the padding to complete 16 bytes
     if(EVP_EncryptUpdate(ctx, outbuf.data(), &outlen, reinterpret_cast<unsigned char *>(plaintext.data()), plaintext.size()) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return false;      
     }
 
+    // Encrpyts the last block and adds padding if required to complete the padding
     int templen = 0;
     if(EVP_EncryptFinal_ex(ctx, outbuf.data() + outlen, &templen) != 1) {
         EVP_CIPHER_CTX_free(ctx);
@@ -64,23 +74,29 @@ bool aes_encrypt(std::string &plaintext, std::string &ciphertext, unsigned char 
     return true;
 }
 
+// This function will decrypt the ciphertext into plaintext using AES-256-CBC
 bool aes_decrypt(std::string &ciphertext, std::string &plaintext, unsigned char key[32], unsigned char iv[16]) {
+    // Creates a context
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if(!ctx) return false;
 
+    // Initialize the context with generated key and iv saying the algorithm to use this key and IV 
     if(EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return false;
     }
 
+    // Creating a outbuf to store the plaintext. Creating a bit extra size to compensate the padding which was done while encrypting the message to complete it's 16 bytes
     int outlen = 0;
     std::vector<unsigned char>outbuf(ciphertext.size() + EVP_CIPHER_block_size(EVP_aes_256_cbc()));
 
+    // Decrypt all the blocks of message except the last one
     if(EVP_DecryptUpdate(ctx, outbuf.data(), &outlen, reinterpret_cast<const unsigned char *>(ciphertext.data()), ciphertext.size()) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return false;
     }
 
+    // Decrypt the last block of message and trimming the padding
     int templen = 0;
     if(EVP_DecryptFinal_ex(ctx, outbuf.data() + outlen, &templen) != 1) {
         EVP_CIPHER_CTX_free(ctx);
@@ -94,6 +110,7 @@ bool aes_decrypt(std::string &ciphertext, std::string &plaintext, unsigned char 
 
 bool recv_all(int sock_fd, void *buff, int len) {
     char *ptr = (char *)buff;
+    // This loop make sure no data is left as recv() function does not guarantee all the data will be received.
     while(len > 0) {
         ssize_t s = recv(sock_fd, ptr, len, 0);
         if(s <= 0) return false;
@@ -104,6 +121,7 @@ bool recv_all(int sock_fd, void *buff, int len) {
 }
 
 bool recv_message(int sock_fd, std::string &message) {
+    // Recieving the first 4 bytes of data which will have the size of message to be sent by client
     uint32_t _4Bytes;
     if(!recv_all(sock_fd, &_4Bytes, sizeof(_4Bytes))) return false;
     uint32_t dataSize = ntohl(_4Bytes);
@@ -111,11 +129,14 @@ bool recv_message(int sock_fd, std::string &message) {
         message.clear();
         return true;
     }
+
+    // Receiving the message sent by client
     message.resize(dataSize);
     if(!recv_all(sock_fd, &message[0], dataSize)) return false;
     return true;
 }
 
+// This function is used to derive key and initialization vector from the PASSPHRASE which client and server knows beforehand
 void deriveKeyIv(unsigned char key[32], unsigned char iv[16]) {
     unsigned char hash1[SHA256_DIGEST_LENGTH];
     SHA256(reinterpret_cast<const unsigned char *>(PASSPHRASE.data()), PASSPHRASE.size(), hash1);   
